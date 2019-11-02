@@ -7,7 +7,8 @@ const MONGO_URL = 'mongodb://wuuba:mongodbpassu123@mongo:27017/wuuba'
 const APP_SECRET = 'salainenagentti123'
 
 const pubsub = new PubSub();
-const MESSAGE_POSTED = 'MESSAGE_POSTED';
+const MESSAGE_POSTED = 'MESSAGE_POSTED'
+const CHANNEL_CREATED = 'CHANNEL_CREATED'
 
 MongoClient.connect(MONGO_URL, (err, client) => {
   if (err) console.log(err)
@@ -64,10 +65,12 @@ MongoClient.connect(MONGO_URL, (err, client) => {
       signup(username: String!, password: String!): AuthToken
       login(username: String!, password: String!): AuthToken
       postMessage(channel_id: String!, body: String!): Message
+      createChannel(name: String!): Channel
     }
 
     type Subscription {
       messagePosted: Message
+      channelCreated: Channel
     }
   `;
 
@@ -83,7 +86,8 @@ MongoClient.connect(MONGO_URL, (err, client) => {
     Mutation: {
       signup: async (parent, args, context, info) => {
         const password = await bcrypt.hash(args.password, 10)
-        const user = await Users.insertOne({...args, password})
+        const result = await Users.insertOne({...args, password})
+        const user = result.ops[0]
         const token = jwt.sign({ userId: user._id }, APP_SECRET)
         return {
           token,
@@ -106,12 +110,21 @@ MongoClient.connect(MONGO_URL, (err, client) => {
         const message = result.ops[0]
         pubsub.publish(MESSAGE_POSTED, { messagePosted: message });
         return message;
+      },
+      createChannel: async (parent, args, context, info) => {
+        const result = await Channels.insertOne({ name: args.name })
+        const channel = result.ops[0]
+        pubsub.publish(CHANNEL_CREATED, { channelCreated: channel });
+        return channel;
       }
     },
     Subscription: {
       messagePosted: {
         subscribe: () => pubsub.asyncIterator([MESSAGE_POSTED]),
       },
+      channelCreated: {
+        subscribe: () => pubsub.asyncIterator([CHANNEL_CREATED])
+      }
     }
   }
 
