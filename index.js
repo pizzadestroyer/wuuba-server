@@ -9,12 +9,14 @@ const APP_SECRET = 'salainenagentti123'
 const pubsub = new PubSub();
 const MESSAGE_POSTED = 'MESSAGE_POSTED'
 const CHANNEL_CREATED = 'CHANNEL_CREATED'
+const REPLY_POSTED = 'REPLY_POSTED'
 
 MongoClient.connect(MONGO_URL, (err, client) => {
   if (err) console.log(err)
 
   const Channels = client.db('wuuba').collection('channels')
   const Messages = client.db('wuuba').collection('messages')
+  const Replies = client.db('wuuba').collection('replies')
   const Users = client.db('wuuba').collection('users')
 
   const getUserId = async (request) => {
@@ -49,6 +51,14 @@ MongoClient.connect(MONGO_URL, (err, client) => {
       channel_id: String
       author: String
       body: String
+      replies: [Reply]
+    }
+
+    type Reply {
+      _id: String
+      message_id: String
+      author: String
+      body: String
     }
 
     type Channel {
@@ -59,17 +69,20 @@ MongoClient.connect(MONGO_URL, (err, client) => {
     type Query {
       channels: [Channel]
       messages(channel_id: String!): [Message]
+      thread(message_id: String!): Message
     }
 
     type Mutation {
       signup(username: String!, password: String!): AuthToken
       login(username: String!, password: String!): AuthToken
       postMessage(channel_id: String!, body: String!): Message
+      postReply(message_id: String!, body: String!): Reply
       createChannel(name: String!): Channel
     }
 
     type Subscription {
       messagePosted: Message
+      replyPosted: Reply
       channelCreated: Channel
     }
   `;
@@ -81,6 +94,11 @@ MongoClient.connect(MONGO_URL, (err, client) => {
       },
       messages: async (parent, args, context, info) => {
         return await Messages.find({ channel_id: { $eq: ObjectId(args.channel_id) } }).toArray()
+      },
+      thread: async (parent, args, context, info) => {
+        const mes = await Messages.findOne({_id: { $eq: ObjectId(args.message_id)}})
+        mes.replies = await Replies.find({ message_id: { $eq: ObjectId(args._id) } }).toArray()
+        return mes
       }
     },
     Mutation: {
@@ -106,10 +124,25 @@ MongoClient.connect(MONGO_URL, (err, client) => {
         }
       },
       postMessage: async (parent, args, context, info) => {
-        const result = await Messages.insertOne({ channel_id: ObjectId(args.channel_id), author: context.username, body: args.body })
+        const result = await Messages.insertOne({ 
+          channel_id: ObjectId(args.channel_id), 
+          author: context.username, 
+          body: args.body,
+          message_id: ObjectId(args.message_id)
+        })
         const message = result.ops[0]
         pubsub.publish(MESSAGE_POSTED, { messagePosted: message });
         return message;
+      },
+      postReply: async (parent, args, context, info) => {
+        const result = await Replies.insertOne({ 
+          message_id: ObjectId(args.message_id), 
+          author: context.username, 
+          body: args.body
+        })
+        const reply = result.ops[0]
+        pubsub.publish(REPLY_POSTED, { replyPosted: reply });
+        return reply
       },
       createChannel: async (parent, args, context, info) => {
         const result = await Channels.insertOne({ name: args.name })
@@ -122,12 +155,15 @@ MongoClient.connect(MONGO_URL, (err, client) => {
       messagePosted: {
         subscribe: () => pubsub.asyncIterator([MESSAGE_POSTED]),
       },
+      replyPosted: {
+        subscribe: () => pubsub.asyncIterator([REPLY_POSTED])
+      },
       channelCreated: {
         subscribe: () => pubsub.asyncIterator([CHANNEL_CREATED])
       }
     }
   }
-
+  
   const server = new ApolloServer({ 
     typeDefs,
     context: ({req}) => {
