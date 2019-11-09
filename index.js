@@ -25,16 +25,13 @@ MongoClient.connect(MONGO_URL, (err, client) => {
       const token = Authorization.replace('Bearer ', '')
       const { userId } = jwt.verify(token, APP_SECRET)
       const user = await Users.findOne({_id: { $eq: ObjectId(userId) }})
-      if (!user) throw new Error('Not authenticated')
       return user
     }
   }
 
   const getWsUserId = async (token) => {
     const { userId } = jwt.verify(token, APP_SECRET)
-    if (!userId) throw new Error('Not authenticated')
     const user = await Users.findOne({_id: { $eq: ObjectId(userId) }})
-    if (!user) throw new Error('Not authenticated')
     return user
   }
 
@@ -51,7 +48,7 @@ MongoClient.connect(MONGO_URL, (err, client) => {
 
     type Message {
       _id: String
-      channel_id: String
+      channelId: String
       author: String
       body: String
       replies: [Reply]
@@ -59,7 +56,7 @@ MongoClient.connect(MONGO_URL, (err, client) => {
 
     type Reply {
       _id: String
-      message_id: String
+      messageId: String
       author: String
       body: String
     }
@@ -71,15 +68,15 @@ MongoClient.connect(MONGO_URL, (err, client) => {
 
     type Query {
       channels: [Channel]
-      messages(channel_id: String!): [Message]
-      thread(message_id: String!): Message
+      messages(channelId: String!): [Message]
+      thread(messageId: String!): Message
     }
 
     type Mutation {
       signup(username: String!, password: String!): AuthToken
       login(username: String!, password: String!): AuthToken
-      postMessage(channel_id: String!, body: String!): Message
-      postReply(message_id: String!, body: String!): Reply
+      postMessage(channelId: String!, body: String!): Message
+      postReply(messageId: String!, body: String!): Reply
       createChannel(name: String!): Channel
     }
 
@@ -96,10 +93,10 @@ MongoClient.connect(MONGO_URL, (err, client) => {
         return await Channels.find().toArray()
       },
       messages: async (parent, args, context, info) => {
-        let messages = await Messages.find({ channel_id: { $eq: ObjectId(args.channel_id) } }).toArray()
+        let messages = await Messages.find({ channelId: { $eq: ObjectId(args.channelId) } }).toArray()
         let promises = []
         messages.forEach(message => {
-          promises.push(Replies.find({ message_id: { $eq: ObjectId(message._id) } }).toArray())
+          promises.push(Replies.find({ messageId: { $eq: ObjectId(message._id) } }).toArray())
         })
         return Promise.all(promises).then((data) => {
           for(let i = 0; i < data.length; i++) {
@@ -109,8 +106,8 @@ MongoClient.connect(MONGO_URL, (err, client) => {
         })
       },
       thread: async (parent, args, context, info) => {
-        const message = await Messages.findOne({_id: { $eq: ObjectId(args.message_id)}})
-        message.replies = await Replies.find({ message_id: { $eq: ObjectId(args.message_id) } }).toArray()
+        const message = await Messages.findOne({_id: { $eq: ObjectId(args.messageId)}})
+        message.replies = await Replies.find({ messageId: { $eq: ObjectId(args.messageId) } }).toArray()
         return message
       }
     },
@@ -138,8 +135,8 @@ MongoClient.connect(MONGO_URL, (err, client) => {
       },
       postMessage: async (parent, args, context, info) => {
         const result = await Messages.insertOne({ 
-          channel_id: ObjectId(args.channel_id), 
-          author: context.username, 
+          channelId: ObjectId(args.channelId), 
+          author: 'user', //context.username, 
           body: args.body,
           replies: []
         })
@@ -149,8 +146,8 @@ MongoClient.connect(MONGO_URL, (err, client) => {
       },
       postReply: async (parent, args, context, info) => {
         const result = await Replies.insertOne({ 
-          message_id: ObjectId(args.message_id), 
-          author: context.username, 
+          messageId: ObjectId(args.messageId), 
+          author: 'user', //context.username, 
           body: args.body
         })
         const reply = result.ops[0]
@@ -179,21 +176,20 @@ MongoClient.connect(MONGO_URL, (err, client) => {
   
   const server = new ApolloServer({ 
     typeDefs,
-    context: ({req}) => {
-      if (!req && (req.body.operationName === 'SignUp' || req.body.operationName === 'Login')) return ""
-        return getUserId(req)
-    },
+    //context: ({req}) => {
+    //  return getUserId(req)
+    //},
     resolvers,
-    subscriptions: {
-      onConnect: async (connectionParams, webSocket) => {
-        const token = connectionParams.authToken
-        const user = await getWsUserId(token)
-        return { 
-          token,
-          user
-        }
-      }, 
-    }
+    //subscriptions: {
+    //  onConnect: async (connectionParams, webSocket) => {
+    //    const token = connectionParams.authToken
+    //    const user = await getWsUserId(token)
+    //    return { 
+    //      token,
+    //      user
+    //    }
+    //  }, 
+    //}
   });
 
   server.listen().then(({ url, subscriptionsUrl }) => {

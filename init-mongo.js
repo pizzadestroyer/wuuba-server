@@ -15,8 +15,8 @@ const chnl_1_id = ObjectId()
 const chnl_2_id = ObjectId()
 
 db.messages.insertMany([
-    { _id: msg_1_id, channel_id: chnl_1_id, author: 'Noob', body: 'Hello' },
-    { _id: msg_2_id, channel_id: chnl_2_id, author: 'Matt', body: 'Hey' }
+    { _id: msg_1_id, channelId: chnl_1_id, author: 'Noob', body: 'Hello' },
+    { _id: msg_2_id, channelId: chnl_2_id, author: 'Matt', body: 'Hey' }
 ])
 
 db.channels.insertMany([
