@@ -24,15 +24,15 @@ MongoClient.connect(MONGO_URL, (err, client) => {
     if (Authorization) {
       const token = Authorization.replace('Bearer ', '')
       const { userId } = jwt.verify(token, APP_SECRET)
-      const user = await Users.findOne({_id: { $eq: ObjectId(userId) }})
-      return user
+      return await Users.findOne({_id: { $eq: ObjectId(userId) }})
     }
+    throw new Error('UNAUTHENTICATED')
   }
 
   const getWsUserId = async (token) => {
     const { userId } = jwt.verify(token, APP_SECRET)
-    const user = await Users.findOne({_id: { $eq: ObjectId(userId) }})
-    return user
+    if (!userId) throw new Error('UNAUTHENTICATED')
+    return await Users.findOne({_id: { $eq: ObjectId(userId) }})
   }
 
   const typeDefs = gql`
@@ -136,7 +136,7 @@ MongoClient.connect(MONGO_URL, (err, client) => {
       postMessage: async (parent, args, context, info) => {
         const result = await Messages.insertOne({ 
           channelId: ObjectId(args.channelId), 
-          author: 'user', //context.username, 
+          author: context.username, 
           body: args.body,
           replies: []
         })
@@ -147,7 +147,7 @@ MongoClient.connect(MONGO_URL, (err, client) => {
       postReply: async (parent, args, context, info) => {
         const result = await Replies.insertOne({ 
           messageId: ObjectId(args.messageId), 
-          author: 'user', //context.username, 
+          author: context.username, 
           body: args.body
         })
         const reply = result.ops[0]
@@ -176,20 +176,21 @@ MongoClient.connect(MONGO_URL, (err, client) => {
   
   const server = new ApolloServer({ 
     typeDefs,
-    //context: ({req}) => {
-    //  return getUserId(req)
-    //},
+    context: ({req}) => {
+      if (!req || req.body.operationName === 'SignUp' || req.body.operationName === 'Login') return ""
+      return getUserId(req)
+    },
     resolvers,
-    //subscriptions: {
-    //  onConnect: async (connectionParams, webSocket) => {
-    //    const token = connectionParams.authToken
-    //    const user = await getWsUserId(token)
-    //    return { 
-    //      token,
-    //      user
-    //    }
-    //  }, 
-    //}
+    subscriptions: {
+      onConnect: async (connectionParams, webSocket) => {
+        const token = connectionParams.authToken
+        const user = await getWsUserId(token)
+        return { 
+          token,
+          user
+        }
+      }, 
+    }
   });
 
   server.listen().then(({ url, subscriptionsUrl }) => {
